@@ -14,7 +14,7 @@ var app = express();
 var port = process.env.PORT || 3000;
 
 /** this project needs a db !! **/ 
-// mongoose.connect(process.env.MONGOLAB_URI);
+mongoose.connect(process.env.MONGO_URI,{ useNewUrlParser: true});
 
 app.use(cors());
 
@@ -34,20 +34,53 @@ app.get("/api/hello", function (req, res) {
   res.json({greeting: 'hello API'});
 });
 
-var addresses = [];
+
+const countSingleton = new mongoose.Schema({value: Number});
+var Count = mongoose.model('Count', countSingleton);
+
+Count.findOne({value:  { $gte: 0}}, (err, data) => {
+            if (err || !data) {
+              const zero = new Count({value: 0});
+              zero.save();
+            }});
+
+const urlSchema = new mongoose.Schema({
+  url: String, short: Number
+});
+var Url = mongoose.model('Url',urlSchema);
+
+//Count.remove({}).exec();
+//Url.remove({}).exec();
+
+
 app.post("/api/shorturl/new", (req, res) => {
   const address = req.body.url;
   rp(address).then(success => {
-    if(addresses.includes(address)) 
-      return res.json({"original_url": address, "short_url": addresses.indexOf(address) + 1});
-    addresses.push(address);
-    return res.json({"original_url": address, "short_url": addresses.length});
-  })
+    Url.findOne({url: new RegExp(address, 'i')}, (err, data) => {
+      if(err || !data){
+        Count.findOne({value:  { $gte: 0}}, (err, cpt) => {
+          const count = cpt.value + 1;
+          const entry = new Url({url: address, short: count});
+          
+          Count.findByIdAndUpdate(cpt._id, {value: count}, {new: true}, (err,dat)=>{});
+          entry.save();
+          
+          return res.json({"original_url": address, "short_url": count});
+        });
+      } else{
+        return res.json({"original_url": data.url, "short_url": data.short});
+      }
+  })})
     .catch(err => res.json({"error":"invalid URL"}));
     
   });
 
- app.get("/api/shorturl/:index", (req,res) => res.redirect(addresses[req.params.index - 1]));
+ app.get("/api/shorturl/:index", (req,res) => {
+   Url.findOne({short: {$eq: req.params.index}}, (err, data) => {
+     res.redirect(data.url);
+   });
+   
+ });
 
 
 app.listen(port, function () {
